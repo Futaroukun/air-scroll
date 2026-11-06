@@ -10,6 +10,7 @@ import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
@@ -19,7 +20,7 @@ import java.util.ArrayDeque
 class HandGestureAnalyzer(
     context: Context,
     private val onGestureDetected: (GestureType) -> Unit,
-    private val onHandPresenceChanged: (Boolean) -> Unit
+    private val onHandPresenceChanged: (Boolean, String) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     private val tag = "HandGestureAnalyzer"
@@ -28,12 +29,14 @@ class HandGestureAnalyzer(
     private data class PointRecord(val y: Float, val timestamp: Long)
     private val history = ArrayDeque<PointRecord>()
 
+    private var lastSeenHandTime: Long = 0L
     private var lastTriggerTime: Long = 0L
+    private var wasHandOpen: Boolean = false
 
-    // Sensitivity tuning
-    private val swipeThreshold = 0.11f // 11% vertical delta in normalized frame
-    private val windowDurationMs = 380L // Rolling history duration window
-    private val gestureCooldownMs = 700L // Delay before next gesture can trigger
+    // Tuning constants
+    private val swipeThreshold = 0.10f      // 10% vertical delta
+    private val windowDurationMs = 400L    // Rolling history window
+    private val gestureCooldownMs = 650L   // Delay between scrolls
 
     init {
         try {
@@ -41,11 +44,12 @@ class HandGestureAnalyzer(
                 .setModelAssetPath("hand_landmarker.task")
                 .build()
 
+            // Lower confidence thresholds to 0.30f so bent fingers and angled hands stay tracked
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setMinHandDetectionConfidence(0.45f)
-                .setMinTrackingConfidence(0.45f)
-                .setMinHandPresenceConfidence(0.45f)
+                .setMinHandDetectionConfidence(0.30f)
+                .setMinTrackingConfidence(0.30f)
+                .setMinHandPresenceConfidence(0.30f)
                 .setNumHands(1)
                 .setRunningMode(RunningMode.IMAGE)
                 .build()
@@ -92,51 +96,88 @@ class HandGestureAnalyzer(
         }
     }
 
+    private fun getDistance(p1: NormalizedLandmark, p2: NormalizedLandmark): Float {
+        val dx = p1.x() - p2.x()
+        val dy = p1.y() - p2.y()
+        return Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+    }
+
     private fun processResult(result: HandLandmarkerResult) {
         val landmarksList = result.landmarks()
         val now = SystemClock.elapsedRealtime()
 
         if (landmarksList.isEmpty() || landmarksList[0].isEmpty()) {
-            history.clear()
-            onHandPresenceChanged(false)
+            // Keep grace period of 300ms so temporary occlusion when bending fingers doesn't drop state
+            if (now - lastSeenHandTime > 300L) {
+                history.clear()
+                wasHandOpen = false
+                onHandPresenceChanged(false, "Standby")
+            }
             return
         }
 
-        onHandPresenceChanged(true)
+        lastSeenHandTime = now
         val landmarks = landmarksList[0]
 
-        // Center of hand (average of wrist 0 and MCP 9)
-        val wristY = landmarks[0].y()
-        val mcpY = landmarks[9].y()
-        val currentY = (wristY + mcpY) / 2.0f
+        val wrist = landmarks[0]
+        val indexTip = landmarks[8]
+        val middleTip = landmarks[12]
+        val middleMcp = landmarks[9]
 
-        // Purge points older than windowDurationMs
+        // 1. Calculate Finger Bend / Curl ratio
+        // Distance from wrist to middle MCP is invariant palm scale
+        val palmSize = getDistance(wrist, middleMcp)
+        val tipsAvgDist = (getDistance(wrist, indexTip) + getDistance(wrist, middleTip)) / 2.0f
+        val extensionRatio = if (palmSize > 0.001f) tipsAvgDist / palmSize else 1.0f
+
+        val isOpenPose = extensionRatio >= 1.30f
+        val isBentPose = extensionRatio <= 1.05f
+
+        val poseLabel = if (isOpenPose) "🖐️ Siap" else if (isBentPose) "✊ Ditekuk" else "Tangan OK"
+        onHandPresenceChanged(true, poseLabel)
+
+        // 2. Gesture Trigger 1: Tekuk Tangan (Flat/Open -> Bent)
+        if (now - lastTriggerTime > gestureCooldownMs) {
+            if (wasHandOpen && isBentPose) {
+                // User was holding hand open (datar/tos) and bent fingers down -> SCROLL DOWN!
+                lastTriggerTime = now
+                wasHandOpen = false
+                history.clear()
+                Log.d(tag, "Triggered SCROLL_DOWN via Finger Bend (ratio = $extensionRatio)")
+                onGestureDetected(GestureType.SCROLL_DOWN)
+                return
+            }
+        }
+
+        if (isOpenPose) {
+            wasHandOpen = true
+        }
+
+        // 3. Gesture Trigger 2: Vertical Movement (Swipe/Wave Naik & Turun)
+        val currentY = (wrist.y() + middleMcp.y()) / 2.0f
+
         while (history.isNotEmpty() && (now - history.first.timestamp > windowDurationMs)) {
             history.removeFirst()
         }
         history.addLast(PointRecord(currentY, now))
 
-        // Check if cooldown has elapsed
-        if (now - lastTriggerTime < gestureCooldownMs) {
-            return
-        }
-
-        // Compare current position with the oldest point in rolling window
-        if (history.size >= 2) {
+        if (now - lastTriggerTime > gestureCooldownMs && history.size >= 2) {
             val oldest = history.first
             val deltaY = currentY - oldest.y
 
             if (deltaY >= swipeThreshold) {
-                // Hand moved down -> Scroll Down to next item
+                // Hand moved down
                 lastTriggerTime = now
                 history.clear()
-                Log.d(tag, "Gesture triggered: SCROLL_DOWN (deltaY = $deltaY)")
+                wasHandOpen = false
+                Log.d(tag, "Triggered SCROLL_DOWN via Movement (deltaY = $deltaY)")
                 onGestureDetected(GestureType.SCROLL_DOWN)
             } else if (deltaY <= -swipeThreshold) {
-                // Hand moved up -> Scroll Up to previous item
+                // Hand moved up
                 lastTriggerTime = now
                 history.clear()
-                Log.d(tag, "Gesture triggered: SCROLL_UP (deltaY = $deltaY)")
+                wasHandOpen = false
+                Log.d(tag, "Triggered SCROLL_UP via Movement (deltaY = $deltaY)")
                 onGestureDetected(GestureType.SCROLL_UP)
             }
         }

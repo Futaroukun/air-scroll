@@ -218,8 +218,8 @@ class CameraOverlayService : LifecycleService() {
                     onGestureDetected = { gesture ->
                         onGestureRecognized(gesture)
                     },
-                    onHandPresenceChanged = { hasHand ->
-                        updateIndicator(hasHand)
+                    onHandPresenceChanged = { hasHand, pose ->
+                        updateIndicator(hasHand, pose)
                     }
                 )
 
@@ -286,10 +286,16 @@ class CameraOverlayService : LifecycleService() {
         }
     }
 
-    private fun updateIndicator(hasHand: Boolean) {
+    private fun updateIndicator(hasHand: Boolean, pose: String) {
         mainHandler.post {
             val color = if (hasHand) Color.parseColor("#10B981") else Color.parseColor("#94A3B8")
             overlayBinding?.indicatorDot?.setBackgroundColor(color)
+
+            val currentText = overlayBinding?.tvGestureFeedback?.text?.toString() ?: ""
+            if (currentText.isEmpty() || currentText == "Ready" || currentText == "Standby" || currentText.startsWith("🖐️") || currentText.startsWith("✊") || currentText == "Tangan OK") {
+                overlayBinding?.tvGestureFeedback?.text = if (hasHand) pose else "Standby"
+                overlayBinding?.tvGestureFeedback?.setTextColor(if (hasHand) Color.parseColor("#10B981") else Color.WHITE)
+            }
         }
     }
 
