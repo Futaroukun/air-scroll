@@ -21,8 +21,10 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import androidx.appcompat.view.ContextThemeWrapper
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -236,12 +238,32 @@ class CameraOverlayService : LifecycleService() {
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                val camera = cameraProvider.bindToLifecycle(
                     this,
                     cameraSelector,
                     preview,
                     imageAnalysis
                 )
+
+                // Anti-Backlight: Center-metering & Exposure compensation
+                try {
+                    val factory = SurfaceOrientedMeteringPointFactory(1f, 1f)
+                    val centerPoint = factory.createPoint(0.5f, 0.5f)
+                    val action = FocusMeteringAction.Builder(centerPoint, FocusMeteringAction.FLAG_AE).build()
+                    camera.cameraControl.startFocusAndMetering(action)
+
+                    val expState = camera.cameraInfo.exposureState
+                    if (expState.isExposureCompensationSupported) {
+                        val range = expState.exposureCompensationRange
+                        val boost = ((range.upper - range.lower) * 0.25f).toInt()
+                        val targetIndex = (expState.exposureCompensationIndex + boost).coerceIn(range)
+                        camera.cameraControl.setExposureCompensationIndex(targetIndex)
+                        Log.d(tag, "Exposure boosted for backlight: index=$targetIndex range=$range")
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Exposure boost unsupported: ${e.message}")
+                }
+
                 Log.d(tag, "CameraX bound successfully.")
             } catch (e: Throwable) {
                 Log.e(tag, "Failed to bind CameraX use cases: ${e.message}", e)
