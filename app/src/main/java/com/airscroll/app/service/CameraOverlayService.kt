@@ -48,6 +48,7 @@ class CameraOverlayService : LifecycleService() {
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var cameraStarted = false
+    private var isPaused = false
 
     companion object {
         var isRunning = false
@@ -165,6 +166,21 @@ class CameraOverlayService : LifecycleService() {
                 y = 180
             }
 
+            // Quick Pause overlay button
+            binding.btnPauseOverlay.setOnClickListener {
+                isPaused = !isPaused
+                binding.btnPauseOverlay.text = if (isPaused) "▶" else "⏸"
+                if (isPaused) {
+                    binding.tvGestureFeedback.text = "⏸ Dijeda"
+                    binding.tvGestureFeedback.setTextColor(Color.YELLOW)
+                    binding.indicatorDot.setBackgroundColor(Color.YELLOW)
+                } else {
+                    binding.tvGestureFeedback.text = "Ready"
+                    binding.tvGestureFeedback.setTextColor(Color.WHITE)
+                    binding.indicatorDot.setBackgroundColor(Color.parseColor("#94A3B8"))
+                }
+            }
+
             // Close overlay button
             binding.btnCloseOverlay.setOnClickListener {
                 stopSelf()
@@ -256,7 +272,7 @@ class CameraOverlayService : LifecycleService() {
                     if (expState.isExposureCompensationSupported) {
                         val range = expState.exposureCompensationRange
                         val boost = ((range.upper - range.lower) * 0.25f).toInt()
-                        val targetIndex = (expState.exposureCompensationIndex + boost).coerceIn(range)
+                        val targetIndex = (expState.exposureCompensationIndex + boost).coerceIn(range.lower, range.upper)
                         camera.cameraControl.setExposureCompensationIndex(targetIndex)
                         Log.d(tag, "Exposure boosted for backlight: index=$targetIndex range=$range")
                     }
@@ -273,6 +289,7 @@ class CameraOverlayService : LifecycleService() {
     }
 
     private fun onGestureRecognized(gesture: GestureType) {
+        if (isPaused) return
         val accessService = AirAccessibilityService.instance
         if (accessService == null) {
             mainHandler.post {
@@ -309,6 +326,7 @@ class CameraOverlayService : LifecycleService() {
     }
 
     private fun updateIndicator(hasHand: Boolean, pose: String) {
+        if (isPaused) return
         mainHandler.post {
             val color = if (hasHand) Color.parseColor("#10B981") else Color.parseColor("#94A3B8")
             overlayBinding?.indicatorDot?.setBackgroundColor(color)

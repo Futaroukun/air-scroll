@@ -348,7 +348,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="› Tekuk tangan ke BAWAH (atau geser turun/kanan): Scroll ke video berikutnya"
+                        android:text="› Tekuk jari ke BAWAH: Scroll ke video berikutnya (Scroll Down)"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp"
                         android:layout_marginBottom="8dp" />
@@ -356,7 +356,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="› Jentik tangan ke ATAS (atau geser ke kiri): Scroll ke video sebelumnya"
+                        android:text="› Cubit jempol + telunjuk (👌) atau jentik ke atas: Scroll ke video sebelumnya (Scroll Up)"
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp"
                         android:layout_marginBottom="8dp" />
@@ -364,7 +364,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="› Anti-Backlight: Kamera otomatis menaikkan eksposur bayangan saat ada cahaya silau dari belakang."
+                        android:text="› Tombol ⏸ / ▶ di Bubble: Jeda atau lanjutkan deteksi gestur kapan saja."
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp" />
                 </LinearLayout>
@@ -398,7 +398,7 @@
                             android:id="@+id/tvAppVersion"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="AirScroll v1.0.5"
+                            android:text="AirScroll v1.0.6"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold" />
 

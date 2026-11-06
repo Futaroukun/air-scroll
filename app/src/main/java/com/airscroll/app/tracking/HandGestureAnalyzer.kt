@@ -37,10 +37,10 @@ class HandGestureAnalyzer(
     private var lastTriggerTime: Long = 0L
     private var wasHandOpen: Boolean = false
 
-    // Sensitivity tuning: Upward motion has less headroom before exiting top bezel, so threshold is more sensitive
-    private val swipeUpThreshold = 0.055f    // 5.5% delta for upward flick
-    private val swipeDownThreshold = 0.085f  // 8.5% delta for downward flick
-    private val swipeHorizThreshold = 0.13f  // 13% delta for horizontal flick
+    // Sensitivity tuning
+    private val swipeUpThreshold = 0.050f    // 5.0% delta for upward flick
+    private val swipeDownThreshold = 0.080f  // 8.0% delta for downward flick
+    private val swipeHorizThreshold = 0.12f  // 12% delta for horizontal flick
     private val windowDurationMs = 450L     // Rolling history window
     private val gestureCooldownMs = 650L    // Cooldown between triggers
 
@@ -124,7 +124,6 @@ class HandGestureAnalyzer(
         val now = SystemClock.elapsedRealtime()
 
         if (landmarksList.isEmpty() || landmarksList[0].isEmpty()) {
-            // Grace period: allow 400ms of missing frames (e.g. backlight flicker) without dropping state
             if (now - lastSeenHandTime > 400L) {
                 history.clear()
                 wasHandOpen = false
@@ -137,22 +136,26 @@ class HandGestureAnalyzer(
         val landmarks = landmarksList[0]
 
         val wrist = landmarks[0]
+        val thumbTip = landmarks[4]
         val indexTip = landmarks[8]
         val middleTip = landmarks[12]
         val middleMcp = landmarks[9]
 
-        // 1. Calculate Finger Bend / Curl ratio
         val palmSize = getDistance(wrist, middleMcp)
         val tipsAvgDist = (getDistance(wrist, indexTip) + getDistance(wrist, middleTip)) / 2.0f
         val extensionRatio = if (palmSize > 0.001f) tipsAvgDist / palmSize else 1.0f
 
-        val isOpenPose = extensionRatio >= 1.25f
-        val isBentPose = extensionRatio <= 1.05f
+        val pinchDist = getDistance(thumbTip, indexTip)
+        val pinchRatio = if (palmSize > 0.001f) pinchDist / palmSize else 1.0f
 
-        val poseLabel = if (isOpenPose) "🖐️ Siap" else if (isBentPose) "✊ Ditekuk" else "Tangan OK"
+        val isOpenPose = extensionRatio >= 1.25f && pinchRatio > 0.32f
+        val isBentPose = extensionRatio <= 1.05f
+        val isPinchPose = pinchRatio <= 0.22f
+
+        val poseLabel = if (isPinchPose) "👌 Cubit" else if (isBentPose) "✊ Ditekuk" else if (isOpenPose) "🖐️ Siap" else "Tangan OK"
         onHandPresenceChanged(true, poseLabel)
 
-        // 2. Gesture Trigger 1: Tekuk Tangan (Flat/Open -> Bent) -> SCROLL DOWN
+        // 1. Gesture: Finger Bend (Open -> Bent) -> SCROLL DOWN
         if (now - lastTriggerTime > gestureCooldownMs) {
             if (wasHandOpen && isBentPose) {
                 lastTriggerTime = now
@@ -161,6 +164,14 @@ class HandGestureAnalyzer(
                 Log.d(tag, "Triggered SCROLL_DOWN via Finger Bend (ratio = $extensionRatio)")
                 onGestureDetected(GestureType.SCROLL_DOWN)
                 return
+            } else if (wasHandOpen && isPinchPose) {
+                // Gesture: Pinch Thumb + Index (Open -> Pinch 👌) -> SCROLL UP
+                lastTriggerTime = now
+                wasHandOpen = false
+                history.clear()
+                Log.d(tag, "Triggered SCROLL_UP via Pinch (ratio = $pinchRatio)")
+                onGestureDetected(GestureType.SCROLL_UP)
+                return
             }
         }
 
@@ -168,7 +179,7 @@ class HandGestureAnalyzer(
             wasHandOpen = true
         }
 
-        // 3. Gesture Trigger 2: Movement Tracking (Naik, Turun, Kiri, Kanan)
+        // 2. Gesture: Movement Tracking (Naik, Turun, Kiri, Kanan)
         val currentX = (wrist.x() + middleMcp.x()) / 2.0f
         val currentY = (wrist.y() + middleMcp.y()) / 2.0f
 
@@ -182,7 +193,7 @@ class HandGestureAnalyzer(
             val deltaX = currentX - oldest.x
             val deltaY = currentY - oldest.y
 
-            // Check vertical movement first
+            // Vertical movement
             if (deltaY <= -swipeUpThreshold) {
                 // Hand moved UP -> SCROLL UP
                 lastTriggerTime = now
@@ -201,7 +212,7 @@ class HandGestureAnalyzer(
                 return
             }
 
-            // Optional horizontal flicks: Left = Previous (Up), Right = Next (Down)
+            // Horizontal flicks: Left = Previous (Up), Right = Next (Down)
             if (deltaX <= -swipeHorizThreshold) {
                 lastTriggerTime = now
                 history.clear()
