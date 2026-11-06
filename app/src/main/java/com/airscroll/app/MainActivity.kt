@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.airscroll.app.databinding.ActivityMainBinding
+import com.airscroll.app.service.AirAccessibilityService
 import com.airscroll.app.service.CameraOverlayService
 import com.airscroll.app.util.PermissionHelper
 
@@ -65,6 +66,18 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Cari & aktifkan 'AirScroll' di daftar Aksesibilitas", Toast.LENGTH_LONG).show()
         }
 
+        binding.btnCheckUpdate.setOnClickListener {
+            val updateIntent = Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse("https://github.com/Futaroukun/air-scroll/releases")
+            )
+            try {
+                startActivity(updateIntent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Gagal membuka tautan pembaruan", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         binding.btnToggleService.setOnClickListener {
             if (CameraOverlayService.isRunning) {
                 CameraOverlayService.stop(this)
@@ -80,7 +93,7 @@ class MainActivity : AppCompatActivity() {
                     binding.btnPermOverlay.performClick()
                     return@setOnClickListener
                 }
-                if (!PermissionHelper.isAccessibilityServiceEnabled(this)) {
+                if (!PermissionHelper.isAccessibilityServiceEnabled(this) && !AirAccessibilityService.isConnected()) {
                     Toast.makeText(this, "Harap aktifkan Layanan Aksesibilitas AirScroll", Toast.LENGTH_SHORT).show()
                     binding.btnPermAccessibility.performClick()
                     return@setOnClickListener
@@ -95,7 +108,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateUiState() {
         val hasCamera = PermissionHelper.hasCameraPermission(this)
         val hasOverlay = PermissionHelper.hasOverlayPermission(this)
-        val hasAccess = PermissionHelper.isAccessibilityServiceEnabled(this)
+        val hasAccess = PermissionHelper.isAccessibilityServiceEnabled(this) || AirAccessibilityService.isConnected()
 
         // Camera status
         if (hasCamera) {
