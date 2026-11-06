@@ -398,7 +398,7 @@
                             android:id="@+id/tvAppVersion"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="AirScroll v1.0.6"
+                            android:text="AirScroll v1.0.7"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold" />
 

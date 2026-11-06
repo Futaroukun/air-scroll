@@ -2,11 +2,7 @@ package com.airscroll.app.tracking
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
-import android.graphics.Paint
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.OptIn
@@ -37,22 +33,12 @@ class HandGestureAnalyzer(
     private var lastTriggerTime: Long = 0L
     private var wasHandOpen: Boolean = false
 
-    // Sensitivity tuning
-    private val swipeUpThreshold = 0.050f    // 5.0% delta for upward flick
-    private val swipeDownThreshold = 0.080f  // 8.0% delta for downward flick
-    private val swipeHorizThreshold = 0.12f  // 12% delta for horizontal flick
-    private val windowDurationMs = 450L     // Rolling history window
-    private val gestureCooldownMs = 650L    // Cooldown between triggers
-
-    // Reusable paint for backlight shadow lifting
-    private val backlightPaint = Paint().apply {
-        colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-            1.25f, 0f, 0f, 0f, 32f,
-            0f, 1.25f, 0f, 0f, 32f,
-            0f, 0f, 1.25f, 0f, 32f,
-            0f, 0f, 0f, 1f, 0f
-        )))
-    }
+    // Upward motion is given a very sensitive threshold (4.5%) so it triggers before hand exits top camera bezel
+    private val swipeUpThreshold = 0.045f
+    private val swipeDownThreshold = 0.080f
+    private val swipeHorizThreshold = 0.12f
+    private val windowDurationMs = 450L
+    private val gestureCooldownMs = 650L
 
     init {
         try {
@@ -60,18 +46,17 @@ class HandGestureAnalyzer(
                 .setModelAssetPath("hand_landmarker.task")
                 .build()
 
-            // Lower confidence to 0.22f so backlit hands and dark silhouettes stay tracked
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setMinHandDetectionConfidence(0.22f)
-                .setMinTrackingConfidence(0.22f)
-                .setMinHandPresenceConfidence(0.22f)
+                .setMinHandDetectionConfidence(0.30f)
+                .setMinTrackingConfidence(0.30f)
+                .setMinHandPresenceConfidence(0.30f)
                 .setNumHands(1)
                 .setRunningMode(RunningMode.IMAGE)
                 .build()
 
             handLandmarker = HandLandmarker.createFromOptions(context, options)
-            Log.d(tag, "MediaPipe HandLandmarker initialized with backlight-tolerant settings.")
+            Log.d(tag, "MediaPipe HandLandmarker initialized successfully.")
         } catch (t: Throwable) {
             Log.e(tag, "Failed to initialize HandLandmarker: ${t.message}", t)
         }
@@ -86,23 +71,22 @@ class HandGestureAnalyzer(
         }
 
         try {
-            val srcBitmap = imageProxy.toBitmap()
-            val rotation = imageProxy.imageInfo.rotationDegrees
-            val isRotated = (rotation == 90 || rotation == 270)
-            val targetWidth = if (isRotated) srcBitmap.height else srcBitmap.width
-            val targetHeight = if (isRotated) srcBitmap.width else srcBitmap.height
-
+            val bitmap = imageProxy.toBitmap()
             val matrix = Matrix().apply {
-                postRotate(rotation.toFloat())
-                postScale(-1f, 1f, srcBitmap.width / 2f, srcBitmap.height / 2f)
+                postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
+                postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
             }
+            val rotatedBitmap = Bitmap.createBitmap(
+                bitmap,
+                0,
+                0,
+                bitmap.width,
+                bitmap.height,
+                matrix,
+                true
+            )
 
-            // Draw with backlight enhancement to lift shadows and boost contrast
-            val enhancedBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(enhancedBitmap)
-            canvas.drawBitmap(srcBitmap, matrix, backlightPaint)
-
-            val mpImage = BitmapImageBuilder(enhancedBitmap).build()
+            val mpImage = BitmapImageBuilder(rotatedBitmap).build()
             val result: HandLandmarkerResult = landmarker.detect(mpImage)
 
             processResult(result)
@@ -124,7 +108,7 @@ class HandGestureAnalyzer(
         val now = SystemClock.elapsedRealtime()
 
         if (landmarksList.isEmpty() || landmarksList[0].isEmpty()) {
-            if (now - lastSeenHandTime > 400L) {
+            if (now - lastSeenHandTime > 350L) {
                 history.clear()
                 wasHandOpen = false
                 onHandPresenceChanged(false, "Standby")
@@ -148,16 +132,17 @@ class HandGestureAnalyzer(
         val pinchDist = getDistance(thumbTip, indexTip)
         val pinchRatio = if (palmSize > 0.001f) pinchDist / palmSize else 1.0f
 
-        val isOpenPose = extensionRatio >= 1.25f && pinchRatio > 0.32f
+        val isOpenPose = extensionRatio >= 1.25f && pinchRatio > 0.30f
         val isBentPose = extensionRatio <= 1.05f
         val isPinchPose = pinchRatio <= 0.22f
 
         val poseLabel = if (isPinchPose) "👌 Cubit" else if (isBentPose) "✊ Ditekuk" else if (isOpenPose) "🖐️ Siap" else "Tangan OK"
         onHandPresenceChanged(true, poseLabel)
 
-        // 1. Gesture: Finger Bend (Open -> Bent) -> SCROLL DOWN
+        // 1. Static Hand Shape Triggers
         if (now - lastTriggerTime > gestureCooldownMs) {
             if (wasHandOpen && isBentPose) {
+                // Hand was open, now bent down -> SCROLL DOWN
                 lastTriggerTime = now
                 wasHandOpen = false
                 history.clear()
@@ -165,7 +150,7 @@ class HandGestureAnalyzer(
                 onGestureDetected(GestureType.SCROLL_DOWN)
                 return
             } else if (wasHandOpen && isPinchPose) {
-                // Gesture: Pinch Thumb + Index (Open -> Pinch 👌) -> SCROLL UP
+                // Hand was open, now pinched thumb+index (👌) -> SCROLL UP
                 lastTriggerTime = now
                 wasHandOpen = false
                 history.clear()
@@ -179,7 +164,7 @@ class HandGestureAnalyzer(
             wasHandOpen = true
         }
 
-        // 2. Gesture: Movement Tracking (Naik, Turun, Kiri, Kanan)
+        // 2. Dynamic Movement Triggers (Naik, Turun, Kiri, Kanan)
         val currentX = (wrist.x() + middleMcp.x()) / 2.0f
         val currentY = (wrist.y() + middleMcp.y()) / 2.0f
 
@@ -212,8 +197,9 @@ class HandGestureAnalyzer(
                 return
             }
 
-            // Horizontal flicks: Left = Previous (Up), Right = Next (Down)
+            // Horizontal movement
             if (deltaX <= -swipeHorizThreshold) {
+                // Left swipe -> SCROLL UP
                 lastTriggerTime = now
                 history.clear()
                 wasHandOpen = false
@@ -221,6 +207,7 @@ class HandGestureAnalyzer(
                 onGestureDetected(GestureType.SCROLL_UP)
                 return
             } else if (deltaX >= swipeHorizThreshold) {
+                // Right swipe -> SCROLL DOWN
                 lastTriggerTime = now
                 history.clear()
                 wasHandOpen = false
