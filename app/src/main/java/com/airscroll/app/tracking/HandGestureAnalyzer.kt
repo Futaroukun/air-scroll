@@ -30,7 +30,7 @@ class HandGestureAnalyzer(
     private var lastTriggerTime: Long = 0L
 
     // Tuning constants
-    private val swipeThreshold = 0.18f // Normalized screen percentage (18% delta)
+    private val swipeThreshold = 0.16f // Normalized screen percentage (16% delta)
     private val maxSwipeDurationMs = 500L // Fast flick
     private val gestureCooldownMs = 800L  // Minimum delay between scrolls
 
@@ -42,17 +42,17 @@ class HandGestureAnalyzer(
 
             val options = HandLandmarker.HandLandmarkerOptions.builder()
                 .setBaseOptions(baseOptions)
-                .setMinHandDetectionConfidence(0.55f)
-                .setMinTrackingConfidence(0.55f)
-                .setMinHandPresenceConfidence(0.55f)
+                .setMinHandDetectionConfidence(0.50f)
+                .setMinTrackingConfidence(0.50f)
+                .setMinHandPresenceConfidence(0.50f)
                 .setNumHands(1)
                 .setRunningMode(RunningMode.IMAGE)
                 .build()
 
             handLandmarker = HandLandmarker.createFromOptions(context, options)
             Log.d(tag, "MediaPipe HandLandmarker initialized successfully.")
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to initialize HandLandmarker: ${e.message}", e)
+        } catch (t: Throwable) {
+            Log.e(tag, "Failed to initialize HandLandmarker: ${t.message}", t)
         }
     }
 
@@ -85,8 +85,8 @@ class HandGestureAnalyzer(
             val result: HandLandmarkerResult = landmarker.detect(mpImage)
 
             processResult(result)
-        } catch (e: Exception) {
-            Log.e(tag, "Error processing camera frame: ${e.message}")
+        } catch (t: Throwable) {
+            Log.e(tag, "Error processing camera frame: ${t.message}")
         } finally {
             imageProxy.close()
         }
@@ -143,7 +143,9 @@ class HandGestureAnalyzer(
     }
 
     fun close() {
-        handLandmarker?.close()
+        try {
+            handLandmarker?.close()
+        } catch (_: Throwable) {}
         handLandmarker = null
     }
 }

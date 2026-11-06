@@ -18,8 +18,8 @@ import android.util.Size
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
+import androidx.appcompat.view.ContextThemeWrapper
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -45,6 +45,7 @@ class CameraOverlayService : LifecycleService() {
     private var gestureAnalyzer: HandGestureAnalyzer? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var cameraStarted = false
 
     companion object {
         var isRunning = false
@@ -52,7 +53,15 @@ class CameraOverlayService : LifecycleService() {
 
         fun start(context: Context) {
             val intent = Intent(context, CameraOverlayService::class.java)
-            ContextCompat.startForegroundService(context, intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ContextCompat.startForegroundService(context, intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("CameraOverlayService", "Failed to start service: ${e.message}")
+            }
         }
 
         fun stop(context: Context) {
@@ -66,7 +75,15 @@ class CameraOverlayService : LifecycleService() {
         isRunning = true
         startForegroundNotification()
         createFloatingOverlay()
-        startCamera()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        if (!cameraStarted) {
+            cameraStarted = true
+            startCamera()
+        }
+        return START_STICKY
     }
 
     private fun startForegroundNotification() {
@@ -98,114 +115,126 @@ class CameraOverlayService : LifecycleService() {
             .setOngoing(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                notificationId,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            )
-        } else {
-            startForeground(notificationId, notification)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    notificationId,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                )
+            } else {
+                startForeground(notificationId, notification)
+            }
+        } catch (e: Throwable) {
+            Log.e(tag, "startForeground with camera type failed: ${e.message}, retrying without camera type")
+            try {
+                startForeground(notificationId, notification)
+            } catch (e2: Throwable) {
+                Log.e(tag, "Critical startForeground fallback failed: ${e2.message}")
+            }
         }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun createFloatingOverlay() {
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val inflater = LayoutInflater.from(this)
-        val binding = OverlayCameraBinding.inflate(inflater)
-        overlayBinding = binding
-
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 40
-            y = 180
-        }
-
-        // Close overlay button
-        binding.btnCloseOverlay.setOnClickListener {
-            stopSelf()
-        }
-
-        // Draggable floating window logic
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-
-        binding.overlayRoot.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).toInt()
-                    params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager?.updateViewLayout(binding.root, params)
-                    true
-                }
-                else -> false
-            }
-        }
-
         try {
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val themedContext = ContextThemeWrapper(this, R.style.Theme_AirScroll)
+            val inflater = LayoutInflater.from(themedContext)
+            val binding = OverlayCameraBinding.inflate(inflater)
+            overlayBinding = binding
+
+            val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                layoutFlag,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = 40
+                y = 180
+            }
+
+            // Close overlay button
+            binding.btnCloseOverlay.setOnClickListener {
+                stopSelf()
+            }
+
+            // Draggable floating window logic
+            var initialX = 0
+            var initialY = 0
+            var initialTouchX = 0f
+            var initialTouchY = 0f
+
+            binding.overlayRoot.setOnTouchListener { _, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        initialX = params.x
+                        initialY = params.y
+                        initialTouchX = event.rawX
+                        initialTouchY = event.rawY
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = initialX + (event.rawX - initialTouchX).toInt()
+                        params.y = initialY + (event.rawY - initialTouchY).toInt()
+                        try {
+                            windowManager?.updateViewLayout(binding.root, params)
+                        } catch (_: Exception) {}
+                        true
+                    }
+                    else -> false
+                }
+            }
+
             windowManager?.addView(binding.root, params)
-        } catch (e: Exception) {
-            Log.e(tag, "Failed to attach floating overlay: ${e.message}")
+        } catch (e: Throwable) {
+            Log.e(tag, "Failed to attach floating overlay: ${e.message}", e)
         }
     }
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            try {
+                val cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder().build().also {
-                overlayBinding?.previewView?.let { previewView ->
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
-            }
-
-            gestureAnalyzer = HandGestureAnalyzer(
-                context = this,
-                onGestureDetected = { gesture ->
-                    onGestureRecognized(gesture)
-                },
-                onHandPresenceChanged = { hasHand ->
-                    updateIndicator(hasHand)
-                }
-            )
-
-            val imageAnalysis = ImageAnalysis.Builder()
-                .setTargetResolution(Size(320, 240)) // Lightweight & cool
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also { analysis ->
-                    gestureAnalyzer?.let { analyzer ->
-                        analysis.setAnalyzer(cameraExecutor, analyzer)
+                val preview = Preview.Builder().build().also {
+                    overlayBinding?.previewView?.let { previewView ->
+                        it.setSurfaceProvider(previewView.surfaceProvider)
                     }
                 }
 
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+                gestureAnalyzer = HandGestureAnalyzer(
+                    context = this,
+                    onGestureDetected = { gesture ->
+                        onGestureRecognized(gesture)
+                    },
+                    onHandPresenceChanged = { hasHand ->
+                        updateIndicator(hasHand)
+                    }
+                )
 
-            try {
+                val imageAnalysis = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(320, 240))
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                    .also { analysis ->
+                        gestureAnalyzer?.let { analyzer ->
+                            analysis.setAnalyzer(cameraExecutor, analyzer)
+                        }
+                    }
+
+                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
                     this,
@@ -214,8 +243,9 @@ class CameraOverlayService : LifecycleService() {
                     imageAnalysis
                 )
                 Log.d(tag, "CameraX bound successfully.")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(tag, "Failed to bind CameraX use cases: ${e.message}", e)
+                overlayBinding?.tvGestureFeedback?.text = "Cam Err"
             }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -251,15 +281,18 @@ class CameraOverlayService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
+        cameraStarted = false
         try {
             overlayBinding?.let {
                 windowManager?.removeView(it.root)
             }
-        } catch (e: Exception) {
-            Log.e(tag, "Error removing overlay view: ${e.message}")
-        }
-        gestureAnalyzer?.close()
-        cameraExecutor.shutdown()
+        } catch (_: Throwable) {}
+        try {
+            gestureAnalyzer?.close()
+        } catch (_: Throwable) {}
+        try {
+            cameraExecutor.shutdown()
+        } catch (_: Throwable) {}
         Log.i(tag, "CameraOverlayService destroyed.")
     }
 }

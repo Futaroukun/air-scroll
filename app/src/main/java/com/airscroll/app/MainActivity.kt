@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 CameraOverlayService.start(this)
+                Toast.makeText(this, "AirScroll aktif! Buka aplikasi sosmed untuk mulai.", Toast.LENGTH_SHORT).show()
                 updateUiState()
             }
         }
