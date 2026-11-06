@@ -251,23 +251,38 @@ class CameraOverlayService : LifecycleService() {
     }
 
     private fun onGestureRecognized(gesture: GestureType) {
-        mainHandler.post {
-            val text = when (gesture) {
-                GestureType.SCROLL_DOWN -> "⬇ Scroll Down"
-                GestureType.SCROLL_UP -> "⬆ Scroll Up"
-                GestureType.NONE -> ""
+        val accessService = AirAccessibilityService.instance
+        if (accessService == null) {
+            mainHandler.post {
+                overlayBinding?.tvGestureFeedback?.text = "⚠️ Aktifkan Akses"
+                overlayBinding?.tvGestureFeedback?.setTextColor(Color.YELLOW)
             }
-            overlayBinding?.tvGestureFeedback?.text = text
+            return
+        }
+
+        val gestureLabel = if (gesture == GestureType.SCROLL_DOWN) "⬇ Scroll Down" else "⬆ Scroll Up"
+
+        mainHandler.post {
+            overlayBinding?.tvGestureFeedback?.text = gestureLabel
             overlayBinding?.tvGestureFeedback?.setTextColor(Color.parseColor("#10B981"))
+        }
 
-            // Dispatch touch gesture via AccessibilityService
-            AirAccessibilityService.instance?.performScroll(gesture)
+        accessService.performScroll(gesture) { success, reason ->
+            mainHandler.post {
+                if (success) {
+                    overlayBinding?.tvGestureFeedback?.text = "✅ $gestureLabel"
+                    overlayBinding?.tvGestureFeedback?.setTextColor(Color.parseColor("#10B981"))
+                } else {
+                    overlayBinding?.tvGestureFeedback?.text = "❌ $reason"
+                    overlayBinding?.tvGestureFeedback?.setTextColor(Color.RED)
+                }
 
-            // Reset text after 800ms
-            mainHandler.postDelayed({
-                overlayBinding?.tvGestureFeedback?.text = "Ready"
-                overlayBinding?.tvGestureFeedback?.setTextColor(Color.WHITE)
-            }, 800)
+                mainHandler.postDelayed({
+                    val statusText = if (AirAccessibilityService.isConnected()) "Ready" else "⚠️ Off"
+                    overlayBinding?.tvGestureFeedback?.text = statusText
+                    overlayBinding?.tvGestureFeedback?.setTextColor(Color.WHITE)
+                }, 900)
+            }
         }
     }
 

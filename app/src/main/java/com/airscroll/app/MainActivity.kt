@@ -7,12 +7,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import com.airscroll.app.databinding.ActivityMainBinding
 import com.airscroll.app.service.AirAccessibilityService
 import com.airscroll.app.service.CameraOverlayService
+import com.airscroll.app.tracking.GestureType
 import com.airscroll.app.util.PermissionHelper
 
 class MainActivity : AppCompatActivity() {
@@ -63,7 +65,26 @@ class MainActivity : AppCompatActivity() {
         binding.btnPermAccessibility.setOnClickListener {
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
             startActivity(intent)
-            Toast.makeText(this, "Cari & aktifkan 'AirScroll' di daftar Aksesibilitas", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Matikan lalu nyalakan saklar 'AirScroll' di Aksesibilitas", Toast.LENGTH_LONG).show()
+        }
+
+        binding.btnTestScroll.setOnClickListener {
+            val service = AirAccessibilityService.instance
+            if (service != null) {
+                Toast.makeText(this, "Menguji swipe layar (Scroll Down)...", Toast.LENGTH_SHORT).show()
+                service.performScroll(GestureType.SCROLL_DOWN) { success, reason ->
+                    runOnUiThread {
+                        if (success) {
+                            Toast.makeText(this, "✅ Layanan Aksesibilitas Berfungsi!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, "❌ Gagal: $reason. Coba nyalakan ulang di pengaturan.", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            } else {
+                Toast.makeText(this, "⚠️ Belum terhubung! Matikan & nyalakan ulang AirScroll di menu Aksesibilitas.", Toast.LENGTH_LONG).show()
+                binding.btnPermAccessibility.performClick()
+            }
         }
 
         binding.btnCheckUpdate.setOnClickListener {
@@ -138,16 +159,31 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Accessibility status
-        if (hasAccess) {
+        val isAccessConnected = AirAccessibilityService.isConnected()
+        val isAccessSettingOn = PermissionHelper.isAccessibilityServiceEnabled(this)
+
+        if (isAccessConnected) {
+            binding.tvAccessWarning.visibility = View.GONE
             binding.tvAccessStatusIcon.text = "✓"
             binding.tvAccessStatusIcon.setTextColor(Color.parseColor("#10B981"))
             binding.btnPermAccessibility.isEnabled = false
             binding.btnPermAccessibility.text = "Aktif"
+            binding.btnTestScroll.isEnabled = true
+        } else if (isAccessSettingOn) {
+            // Setting is ON in Android, but service connection was dropped after APK install
+            binding.tvAccessWarning.visibility = View.VISIBLE
+            binding.tvAccessStatusIcon.text = "⚠️"
+            binding.tvAccessStatusIcon.setTextColor(Color.parseColor("#F59E0B"))
+            binding.btnPermAccessibility.isEnabled = true
+            binding.btnPermAccessibility.text = "Restart Izin"
+            binding.btnTestScroll.isEnabled = false
         } else {
+            binding.tvAccessWarning.visibility = View.GONE
             binding.tvAccessStatusIcon.text = "!"
             binding.tvAccessStatusIcon.setTextColor(Color.parseColor("#F59E0B"))
             binding.btnPermAccessibility.isEnabled = true
             binding.btnPermAccessibility.text = "Aktifkan"
+            binding.btnTestScroll.isEnabled = false
         }
 
         // Service running status

@@ -292,6 +292,30 @@
                             android:text="Aktifkan"
                             android:textSize="12sp" />
                     </LinearLayout>
+
+                    <!-- Accessibility Re-toggle Warning Banner -->
+                    <TextView
+                        android:id="@+id/tvAccessWarning"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="#33F59E0B"
+                        android:padding="8dp"
+                        android:text="⚠️ Jika baru update aplikasi, matikan lalu nyalakan ulang izin Aksesibilitas agar Android menghubungkannya kembali."
+                        android:textColor="@color/warning"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
+                    <!-- Quick Test Scroll Button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestScroll"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="⚡ Uji Coba Scroll Layar (Test Swipe)"
+                        android:textColor="@color/accent"
+                        app:strokeColor="@color/accent" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -374,7 +398,7 @@
                             android:id="@+id/tvAppVersion"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="AirScroll v1.0.2"
+                            android:text="AirScroll v1.0.3"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold" />
 
